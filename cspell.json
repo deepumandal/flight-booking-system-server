@@ -1,0 +1,18 @@
+{
+  "version": "0.2",
+  "language": "en",
+  "words": [
+    "disposablemail",
+    "fakemail",
+    "FIRSTCLASS",
+    "mailinator",
+    "ONTIME",
+    "SUPABASE",
+    "tempmail"
+  ],
+  "ignorePaths": [
+    "node_modules",
+    "dist"
+  ],
+  "ignoreWords": []
+}

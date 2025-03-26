@@ -1,219 +1,288 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { CreateFlightDto } from './dto/create-flight.dto';
-import { UpdateFlightDto } from './dto/update-flight.dto';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Flight } from './entities/flight.entity';
-import { Repository } from 'typeorm';
-import { ResponseHandler } from 'src/common/utils/response-handler.utils';
-import { FlightClassCatogories } from './entities/flight-class.entity';
-import * as moment from 'moment'
-import { FlightStatus } from 'src/common/enums/flight-status.enum';
-import { FlightClass } from 'src/common/enums/flight-class.enum';
-import { QueryFlightDto } from './dto/query-flight.dto';
-import { faker } from '@faker-js/faker';
+import { faker } from "@faker-js/faker";
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
+import { InjectRepository } from "@nestjs/typeorm";
+import * as moment from "moment";
+import { FlightClass } from "src/common/enums/flight-class.enum";
+import { FlightStatus } from "src/common/enums/flight-status.enum";
+import { ResponseHandler } from "src/common/utils/response-handler.utils";
+import { Repository } from "typeorm";
+import { CreateFlightDto } from "./dto/create-flight.dto";
+import { QueryFlightDto } from "./dto/query-flight.dto";
+import { UpdateFlightDto } from "./dto/update-flight.dto";
+import { FlightClassCategories } from "./entities/flight-class.entity";
+import { Flight } from "./entities/flight.entity";
 
 @Injectable()
 export class FlightsService {
   constructor(
     @InjectRepository(Flight)
     private readonly flightRepository: Repository<Flight>,
-    @InjectRepository(FlightClassCatogories)
-    private readonly flightClassRepository: Repository<FlightClassCatogories>
-
-  ) { }
+    @InjectRepository(FlightClassCategories)
+    private readonly flightClassRepository: Repository<FlightClassCategories>
+  ) {}
 
   async create(createFlightDto: CreateFlightDto) {
-    let { flightNumber, departureTime, destination, origin, status, flightClassCategories, airLineName, totalSeats, estimatedTimeToReach } = createFlightDto
+    const {
+      flightNumber,
+      departureTime,
+      destination,
+      origin,
+      status,
+      flightClassCategories,
+      airLineName,
+      totalSeats,
+      estimatedTimeToReach,
+    } = createFlightDto;
 
-    const parsedCategories = Array.isArray(flightClassCategories)
-      ? flightClassCategories
-      : JSON.parse(flightClassCategories as any);
-    // we have to check for the flightClassCatogories array and match with totalSeats
-    const flightClassCatogoriesSeats = parsedCategories.map((category) => category.seats)
-    const totalSeatsFromCategories = flightClassCatogoriesSeats.reduce((acc, curr) => acc + curr)
+    // Calculate total seats from class categories
+    const totalSeatsFromCategories = flightClassCategories.reduce(
+      (acc, category) => acc + category.seats,
+      0
+    );
 
-    console.log(totalSeats, totalSeatsFromCategories)
+    if (totalSeats !== totalSeatsFromCategories) {
+      throw new BadRequestException(
+        `Total seats (${totalSeats}) do not match with sum of flight class category seats (${totalSeatsFromCategories}).`
+      );
+    }
 
-    if (totalSeats !== totalSeatsFromCategories) throw new BadRequestException('Total seats does not match with the flight class categories')
-
+    // Create flight entity
     const flight = this.flightRepository.create({
       airLineName,
       totalSeats,
       flightNumber,
       departureTime: moment(departureTime).toDate(),
       destination,
-      estimatedTimeToReach: moment(departureTime).add(estimatedTimeToReach, 'hours').toDate(),
+      estimatedTimeToReach: moment(departureTime)
+        .add(estimatedTimeToReach, "hours")
+        .toDate(),
       origin,
-      status: FlightStatus[status]
-    })
+      status,
+    });
 
-    console.log(flightClassCategories)
-    const newFlight = await this.flightRepository.save(flight)
+    const savedFlight = await this.flightRepository.save(flight);
 
-    // we have to save the flightClassCategories array with relation to the flight-class entity
-    const flightsClassToSave = flightClassCategories.map((category) => {
-      return {
-        ...category,
-        flightClass: FlightClass[category.flightClass],
-        remainingSeats: category.seats,
-        flightId: newFlight.id
-      }
-    })
-    const saveFlightClassWithCatogories = await this.flightClassRepository.save(flightsClassToSave)
+    // Prepare and save class categories
+    const classCategoriesToSave = flightClassCategories.map((category) => ({
+      ...category,
+      flightClass: category.flightClass,
+      remainingSeats: category.seats,
+      flightId: savedFlight.id,
+    }));
 
-    return new ResponseHandler('Flight created successfully', 201, true, { flight: newFlight, flightClassCategories: saveFlightClassWithCatogories })
+    const savedCategories = await this.flightClassRepository.save(
+      classCategoriesToSave
+    );
+
+    return new ResponseHandler("Flight created successfully", 201, true, {
+      flight: savedFlight,
+      flightClassCategories: savedCategories,
+    });
   }
 
   async findAll(query: QueryFlightDto) {
-    const { airLineName, destination, origin, isRoundTrip, startDate, endDate } = query;
+    const {
+      airLineName,
+      destination,
+      origin,
+      isRoundTrip,
+      startDate,
+      endDate,
+    } = query;
 
-    if (isRoundTrip && (!destination || !origin)) {
-      throw new BadRequestException('Destination and origin are required for round trips');
-    }
+    const flights: { outboundFlights: any[]; returnFlights?: any[] } = {
+      outboundFlights: [],
+    };
 
-    let flights: any[] | { outboundFlights: any[], returnFlights: any[] } = [];
-
-    if (isRoundTrip) {
-      // Get outbound flights first
-      const outboundFlights = await this.flightRepository.createQueryBuilder('flights')
-        .leftJoinAndSelect('flights.flightClassCatogories', 'flightClassCatogories')
-        .where('flights."origin" = :origin', { origin })
-        .andWhere('flights."destination" = :destination', { destination })
-        .andWhere('flights."departureTime" > :currentDate', {
-          currentDate: moment().startOf('day').toDate()
-        });
-
-      if (startDate) {
-        outboundFlights.andWhere('DATE(flights."departureTime") = :startDate', {
-          startDate: moment(startDate).format('YYYY-MM-DD')
-        });
-      }
-
-      if (airLineName) {
-        outboundFlights.andWhere('flights."airLineName" ILIKE :airLineName', {
-          airLineName: `%${airLineName}%`
-        });
-      }
-
-      const outbound = await outboundFlights.getMany();
-
-      // Get return flights for each outbound flight
-      const returnFlightsPromises = outbound.map(async (outboundFlight) => {
-        const returnQuery = this.flightRepository.createQueryBuilder('flights')
-          .leftJoinAndSelect('flights.flightClassCatogories', 'flightClassCatogories')
-          .where('flights."origin" = :destination', { destination })
-          .andWhere('flights."destination" = :origin', { origin })
-          .andWhere('flights."departureTime" > :outboundArrival', {
-            outboundArrival: outboundFlight.estimatedTimeToReach
-          });
-
-        if (endDate) {
-          returnQuery.andWhere('DATE(flights."departureTime") = :endDate', {
-            endDate: moment(endDate).format('YYYY-MM-DD')
-          });
-        }
-
-        if (airLineName) {
-          returnQuery.andWhere('flights."airLineName" ILIKE :airLineName', {
-            airLineName: `%${airLineName}%`
-          });
-        }
-
-        return returnQuery.getMany();
+    // ✅ OUTBOUND FLIGHTS QUERY
+    const outboundQuery = this.flightRepository
+      .createQueryBuilder("flights")
+      .leftJoinAndSelect(
+        "flights.flightClassCategories",
+        "flightClassCategories"
+      )
+      .where('flights."origin" = :origin', { origin })
+      .andWhere('flights."destination" = :destination', { destination })
+      .andWhere('flights."departureTime" > :currentDate', {
+        currentDate: moment().startOf("day").toDate(),
       });
 
-      const allReturnFlights = await Promise.all(returnFlightsPromises);
-      // Flatten and remove duplicates from return flights
-      const uniqueReturnFlights = Array.from(new Set(allReturnFlights.flat()));
+    if (startDate) {
+      outboundQuery.andWhere('DATE(flights."departureTime") = :startDate', {
+        startDate: moment(startDate).format("YYYY-MM-DD"),
+      });
+    }
 
-      flights = {
-        outboundFlights: outbound,
-        returnFlights: uniqueReturnFlights
-      };
-    } else {
-      // ... existing single trip logic ...
+    if (airLineName) {
+      outboundQuery.andWhere('flights."airLineName" ILIKE :airLineName', {
+        airLineName: `%${airLineName}%`,
+      });
+    }
+
+    const outboundFlights = await outboundQuery.getMany();
+    flights.outboundFlights = outboundFlights;
+
+    // ✅ RETURN FLIGHTS QUERY if round trip
+    if (isRoundTrip) {
+      // ✅ Validate early
+      if (!endDate) {
+        throw new BadRequestException(
+          "Return (end) date is required for round trip."
+        );
+      }
+
+      const returnFlightsPromises = outboundFlights.map(
+        async (outboundFlight) => {
+          const returnQuery = this.flightRepository
+            .createQueryBuilder("flights")
+            .leftJoinAndSelect(
+              "flights.flightClassCategories",
+              "flightClassCategories"
+            )
+            .where('flights."origin" = :returnOrigin', {
+              returnOrigin: destination,
+            })
+            .andWhere('flights."destination" = :returnDestination', {
+              returnDestination: origin,
+            })
+            .andWhere('flights."departureTime" > :minReturnTime', {
+              minReturnTime: outboundFlight.estimatedTimeToReach,
+            });
+
+          returnQuery.andWhere('DATE(flights."departureTime") = :endDate', {
+            endDate: moment(endDate).format("YYYY-MM-DD"),
+          });
+
+          if (airLineName) {
+            returnQuery.andWhere('flights."airLineName" ILIKE :airLineName', {
+              airLineName: `%${airLineName}%`,
+            });
+          }
+
+          return returnQuery.getMany();
+        }
+      );
+
+      const allReturnFlights = await Promise.all(returnFlightsPromises);
+      const uniqueReturnFlights = Array.from(
+        new Map(
+          allReturnFlights.flat().map((flight) => [flight.id, flight])
+        ).values()
+      );
+
+      flights.returnFlights = uniqueReturnFlights;
     }
 
     return new ResponseHandler(
-      'Flights found successfully',
+      "Flights found successfully",
       200,
       true,
-      flights
+      isRoundTrip ? flights : { outboundFlights: flights.outboundFlights }
     );
-}
+  }
 
   async seedFlights(count: number = 50) {
-    console.log('Seeding flights...');
+    // eslint-disable-next-line no-console
+    console.log("Seeding flights...");
     const cities = [
-      'Mumbai', 'Delhi', 'Bangalore', 'Chennai', 'Kolkata',
-      'Hyderabad', 'Ahmedabad', 'Pune', 'Jaipur', 'Lucknow'
+      "Mumbai",
+      "Delhi",
+      "Bangalore",
+      "Chennai",
+      "Kolkata",
+      "Hyderabad",
+      "Ahmedabad",
+      "Pune",
+      "Jaipur",
+      "Lucknow",
     ];
 
     const airlines = [
-      'Air India', 'IndiGo', 'SpiceJet', 'Vistara',
-      'Go First', 'AirAsia India'
+      "Air India",
+      "IndiGo",
+      "SpiceJet",
+      "Vistara",
+      "Go First",
+      "AirAsia India",
     ];
 
     const flightClassTemplates = [
       [
         { flightClass: FlightClass.ECONOMY, price: 3000, seats: 150 },
         { flightClass: FlightClass.BUSINESS, price: 8000, seats: 50 },
-        { flightClass: FlightClass.FIRST, price: 15000, seats: 20 }
+        { flightClass: FlightClass.FIRST, price: 15000, seats: 20 },
       ],
       [
         { flightClass: FlightClass.ECONOMY, price: 4000, seats: 180 },
         { flightClass: FlightClass.BUSINESS, price: 10000, seats: 30 },
-        { flightClass: FlightClass.FIRST, price: 20000, seats: 10 }
+        { flightClass: FlightClass.FIRST, price: 20000, seats: 10 },
       ],
       [
         { flightClass: FlightClass.ECONOMY, price: 2500, seats: 180 },
         { flightClass: FlightClass.BUSINESS, price: 7000, seats: 10 },
-        { flightClass: FlightClass.FIRST, price: 14000, seats: 30 }
-      ]
+        { flightClass: FlightClass.FIRST, price: 14000, seats: 30 },
+      ],
     ];
 
+    const usedFlightNumbers = new Set<string>();
     const flights = [];
 
     for (let i = 0; i < count; i++) {
-      // Get random origin and destination (ensuring they're different)
       const [origin, destination] = faker.helpers.shuffle(cities).slice(0, 2);
 
-      // Generate random departure time (between tomorrow and next 3 months)
       const departureTime = faker.date.between({
-        from: moment().add(1, 'day').toDate(),
-        to: moment().add(3, 'months').toDate()
+        from: moment().add(1, "day").toDate(),
+        to: moment().add(3, "months").toDate(),
       });
 
-      // Random flight duration between 1-5 hours
-      const estimatedTimeToReach = faker.number.int({ min: 1, max: 5 });
+      const estimatedHours = faker.number.int({ min: 1, max: 5 });
+      const estimatedTimeToReach = moment(departureTime)
+        .add(estimatedHours, "hours")
+        .toDate();
 
-      // Random flight class template
       const flightClasses = faker.helpers.arrayElement(flightClassTemplates);
-      const totalSeats = flightClasses.reduce((acc, curr) => acc + curr.seats, 0);
+      const totalSeats = flightClasses.reduce(
+        (acc, curr) => acc + curr.seats,
+        0
+      );
+
+      // ✅ Ensure unique flight number per origin-destination pair
+      let flightNumber = 0;
+      let attempts = 0;
+      let uniqueKey = "";
+
+      do {
+        flightNumber = faker.number.int({ min: 1000, max: 9999 });
+        uniqueKey = `${origin}-${destination}-${flightNumber}`;
+        attempts++;
+      } while (usedFlightNumbers.has(uniqueKey) && attempts < 10);
+
+      usedFlightNumbers.add(uniqueKey);
 
       const flight = this.flightRepository.create({
         airLineName: faker.helpers.arrayElement(airlines),
-        flightNumber: faker.number.int({ min: 1000, max: 9999 }),
+        flightNumber,
         departureTime,
-        estimatedTimeToReach: moment(departureTime).add(estimatedTimeToReach, 'hours').toDate(),
+        estimatedTimeToReach,
         totalSeats,
         destination,
         origin,
-        status: FlightStatus.ONTIME
+        status: FlightStatus.ONTIME,
       });
-      console.log(flight)
 
       const savedFlight = await this.flightRepository.save(flight);
 
-      // Create flight classes with remaining seats equal to total seats initially
-      const flightClassesToSave = flightClasses.map(category => ({
+      const flightClassesToSave = flightClasses.map((category) => ({
         ...category,
         remainingSeats: category.seats,
-        flightId: savedFlight.id
+        flightId: savedFlight.id,
       }));
 
       await this.flightClassRepository.save(flightClassesToSave);
-      flights.push({ flight: savedFlight, flightClasses: flightClassesToSave });
     }
 
     return new ResponseHandler(
@@ -227,28 +296,35 @@ export class FlightsService {
   async findOne(id: string) {
     const findFlight = await this.flightRepository.findOne({
       where: {
-        id: id
+        id: id,
       },
-      relations: ['flightClassCatogories']
-    })
+      relations: ["flightClassCategories"],
+    });
 
-    if (!findFlight) throw new NotFoundException('Flight not found')
+    if (!findFlight) throw new NotFoundException("Flight not found");
 
-    return new ResponseHandler('Flight found', 200, true, findFlight)
+    return new ResponseHandler("Flight found", 200, true, findFlight);
   }
 
   async update(id: string, updateFlightDto: UpdateFlightDto) {
     const findFlight = await this.flightRepository.findOne({
       where: {
-        id: id
-      }
-    })
+        id: id,
+      },
+    });
 
-    if (!findFlight) throw new NotFoundException('Flight not found')
+    if (!findFlight) throw new NotFoundException("Flight not found");
 
-    const updatedFlight = await this.flightRepository.update(id, updateFlightDto)
+    const updatedFlight = await this.flightRepository.update(
+      id,
+      updateFlightDto
+    );
 
-    return new ResponseHandler('Flight updated successfully', 200, true, updatedFlight)
-
+    return new ResponseHandler(
+      "Flight updated successfully",
+      200,
+      true,
+      updatedFlight
+    );
   }
 }

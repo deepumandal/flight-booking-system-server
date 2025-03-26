@@ -1,51 +1,39 @@
-import { ApiProperty } from "@nestjs/swagger";
-import { IsNotEmpty, IsOptional, IsString } from "class-validator";
+import { ApiPropertyOptional } from "@nestjs/swagger";
+import { Transform } from "class-transformer";
+import { IsBoolean, IsDateString, IsOptional, IsString } from "class-validator";
 
 export class QueryFlightDto {
-    @ApiProperty({
-        description : 'The name of the airline',
-        required : false
-    })
-    @IsString()
-    @IsOptional()
-    airLineName : string
+  @ApiPropertyOptional({ example: "Air India" })
+  @IsOptional()
+  @IsString()
+  airLineName?: string;
 
-    @ApiProperty({
-        description : 'The start date of the flight',
-        required : false
-    })
-    @IsString()
-    @IsNotEmpty()
-    startDate : string
+  @ApiPropertyOptional({ example: "Mumbai" })
+  @IsString()
+  destination?: string;
 
-    @ApiProperty({
-        description : 'The end date of the flight',
-        required : false
-    })
-    @IsString()
-    @IsNotEmpty()
-    endDate : string
+  @ApiPropertyOptional({ example: "New Delhi" })
+  @IsString()
+  origin?: string;
 
-    @ApiProperty({
-        description : 'The origin of the flight',
-        required : false
-    })
-    @IsString()
-    @IsOptional()
-    origin : string
+  @ApiPropertyOptional({ example: false, type: Boolean })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => (value === "true" ? true : false))
+  isRoundTrip?: boolean;
 
-    @ApiProperty({
-        description : 'The destination of the flight',
-        required : false
-    })
-    @IsString()
-    @IsOptional()
-    destination : string
+  @ApiPropertyOptional({
+    example: "2025-05-10",
+    description: "Format: YYYY-MM-DD",
+  })
+  @IsDateString()
+  startDate?: string;
 
-    @ApiProperty({
-        description : 'Check round trip flights',
-        required : false
-    })
-    @IsOptional()
-    isRoundTrip : boolean
+  @ApiPropertyOptional({
+    example: "2025-05-14",
+    description: "Format: YYYY-MM-DD",
+  })
+  @IsOptional()
+  @IsDateString()
+  endDate?: string;
 }

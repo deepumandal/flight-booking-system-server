@@ -1,45 +1,37 @@
-import {
-  IsString,
-  IsNumber,
-  IsBoolean,
-  IsDate,
-  IsOptional,
-  IsNotEmpty
-} from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
-import { FlightClass } from 'src/common/enums/flight-class.enum';
+import { ApiProperty } from "@nestjs/swagger";
+import { IsString, IsNumber, IsNotEmpty, IsEnum } from "class-validator";
+import { FlightClass } from "src/common/enums/flight-class.enum";
 
 export class CreateBookingDto {
-
   @ApiProperty({
-    description: 'userId field',
-    example: 'example string'
+    description: "userId field",
+    example: "example string",
   })
   @IsNotEmpty()
   @IsString()
   userId: string;
 
   @ApiProperty({
-    description: 'flightId field',
-    example: 'example string'
+    description: "flightId field",
+    example: "example string",
   })
   @IsNotEmpty()
   @IsString()
   flightId: string;
 
   @ApiProperty({
-    description : 'number of passengers',
-    example : 2
+    description: "number of passengers",
+    example: 2,
   })
   @IsNotEmpty()
   @IsNumber()
-  passengers : number
+  passengers: number;
 
   @ApiProperty({
-    description : 'flight class',
-    example : 'ECONOMY'
+    description: "flight class",
+    example: "ECONOMY",
   })
   @IsNotEmpty()
-  @IsString()
-  flightClass : FlightClass
+  @IsEnum(FlightClass)
+  flightClass: FlightClass;
 }

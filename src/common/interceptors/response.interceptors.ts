@@ -6,12 +6,12 @@ export class ResponseInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest();
     const response = context.switchToHttp().getResponse();
     return next.handle().pipe(
-        map(data => {
-            if(data && data.statusCode) {
-                response.status(data.statusCode);
-            }
-            return data;
-        })
-    )
+      map((data) => {
+        if (data && data.statusCode) {
+          response.status(data.statusCode);
+        }
+        return data;
+      })
+    );
   }
 }
