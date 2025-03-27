@@ -1,0 +1,8 @@
+services:
+  nestjs:
+    image: ${IMAGE_NAME}
+    container_name: nestjs-app-prod
+    env_file:
+      - .env 
+    ports:
+      - ${PORT}:${CONTAINER_PORT}

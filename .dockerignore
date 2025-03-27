@@ -1,0 +1,9 @@
+node_modules
+.git
+.gitignore
+*.md
+dist
+logs
+node_modules
+dist
+.husky

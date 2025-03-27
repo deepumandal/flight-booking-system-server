@@ -1,0 +1,10 @@
+services:
+  nestjs:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: fbs-nestjs-app
+    env_file:
+      - .env 
+    ports:
+      - ${PORT}:${CONTAINER_PORT}

@@ -7,7 +7,8 @@ export type envKey =
   | "DB_PASSWORD"
   | "DB_HOST"
   | "DB_PORT"
-  | "JWT_SECRET"
+  | "JWT_SECRET" 
+  | "DATABASE_URL" 
   | "PORT";
 
 export const envConfig = <T>(key: envKey): T => {
